@@ -121,9 +121,12 @@ jobs:
       - name: Build architecture-specific image (no push)
         env:
           ARCH: ${{ matrix.arch }}
+          RC_ARCH: ${{ matrix.arch }}
+          RC_VERSION: 1.5.4
         run: |
+          REF="$(node scripts/release-cloud-ci.mjs docker-ref)"
           docker buildx build --load --platform "linux/$ARCH" \
-            --tag "cropflre/nowen-note:v1.5.4-$ARCH" \
+            --tag "$REF" \
             --tag "nowen-freeze:$GITHUB_SHA-$ARCH" \
             --build-arg APP_VERSION=1.5.4 --build-arg "VCS_REF=$GITHUB_SHA" .
           docker run --rm --entrypoint node "nowen-freeze:$GITHUB_SHA-$ARCH" backend/scripts/smoke-plugin-artifacts.cjs

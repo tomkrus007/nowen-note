@@ -5,7 +5,7 @@ import { readdir, readFile, writeFile, mkdir, lstat, copyFile, chmod, appendFile
 import { join, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { CLOUD_REPO, normalizeBuild, normalizePublish, expectedArtifacts, assertBuildRun } from './lib/release-cloud-contract.mjs';
+import { CLOUD_REPO, DOCKER_REPO, normalizeBuild, normalizePublish, expectedArtifacts, assertBuildRun } from './lib/release-cloud-contract.mjs';
 
 const e = process.env;
 const run = (command, args, options = {}) => execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], ...options }).trim();
@@ -100,9 +100,12 @@ async function androidStage() {
   if (!run('jarsigner', ['-verify', aab], { env: { ...e, LC_ALL: 'C' } }).includes('jar verified.')) throw Error('AAB 签名验证失败');
   await copyFile(aab, `release-android/Nowen-Note-${e.RC_VERSION}.aab`);
 }
-async function dockerStage() {
+function dockerRef() {
   if (!['amd64', 'arm64'].includes(e.RC_ARCH)) throw Error('无效 Docker 架构');
-  const ref = `${CLOUD_REPO}:v${e.RC_VERSION}-${e.RC_ARCH}`;
+  return `${DOCKER_REPO}:v${e.RC_VERSION}-${e.RC_ARCH}`;
+}
+async function dockerStage() {
+  const ref = dockerRef();
   const image = JSON.parse(run('docker', ['image', 'inspect', ref]))[0];
   if (image.Architecture !== e.RC_ARCH || image.Os !== 'linux' || image.Config.Labels['org.opencontainers.image.revision'] !== e.GITHUB_SHA || image.Config.Labels['org.opencontainers.image.version'] !== e.RC_VERSION) throw Error('Docker 镜像来源不一致');
   await mkdir('release-docker', { recursive: true });
@@ -115,7 +118,7 @@ async function dockerStage() {
 }
 export async function loadImage(directory, version, sha, arch, execute = run) {
   const image = await json(join(directory, 'image.json'));
-  if (image.arch !== arch || image.sha !== sha || image.version !== version || image.ref !== `${CLOUD_REPO}:v${version}-${arch}` || !/^sha256:[a-f0-9]{64}$/.test(image.id)) throw Error('Docker 镜像记录不匹配');
+  if (image.arch !== arch || image.sha !== sha || image.version !== version || image.ref !== `${DOCKER_REPO}:v${version}-${arch}` || !/^sha256:[a-f0-9]{64}$/.test(image.id)) throw Error('Docker 镜像记录不匹配');
   const archive = await fileDigest(join(directory, 'image.tar'));
   if (!/^[a-f0-9]{64}$/.test(image.archiveSha256 || '') || archive.sha256 !== image.archiveSha256) {
     throw Error('Docker 镜像归档 SHA-256 不匹配');
@@ -144,12 +147,12 @@ async function nas() {
     if (createHash('sha256').update(bytes).digest('hex') !== e.FNPACK_SHA256) throw Error('fnpack SHA256 不匹配');
     const binary = join(e.RUNNER_TEMP, 'fnpack');
     await writeFile(binary, bytes, { mode: 0o700 });
-    run('node', ['scripts/fpk/build-fpk.mjs'], { env: { ...e, DOCKERHUB_REPO: CLOUD_REPO, FPK_IMAGE_TAG: `v${e.RC_VERSION}`, FNPACK_BIN: binary } });
+    run('node', ['scripts/fpk/build-fpk.mjs'], { env: { ...e, DOCKERHUB_REPO: DOCKER_REPO, FPK_IMAGE_TAG: `v${e.RC_VERSION}`, FNPACK_BIN: binary } });
     await stageFiles('dist-fpk', 'release-fpk', /\.fpk$/);
   }
   if (targets.includes('upk')) {
     await chmod('ugcli', 0o700);
-    run('node', ['scripts/upk/build-upk.mjs', '--version', e.RC_VERSION, '--arch', 'all', '--image', `${CLOUD_REPO}:v${e.RC_VERSION}`], { env: { ...e, DOCKERHUB_REPO: CLOUD_REPO } });
+    run('node', ['scripts/upk/build-upk.mjs', '--version', e.RC_VERSION, '--arch', 'all', '--image', `${DOCKER_REPO}:v${e.RC_VERSION}`], { env: { ...e, DOCKERHUB_REPO: DOCKER_REPO } });
     await stageFiles('dist-upk', 'release-upk', /\.upk$/);
   }
 }
@@ -244,7 +247,7 @@ async function verify() {
 }
 async function main(command) {
   requireRunner();
-  const commands = { plan, prepare, 'android-signing': androidSigning, 'android-stage': androidStage, 'docker-stage': dockerStage, nas, manifest, verify, 'mac-proof': macProof };
+  const commands = { plan, prepare, 'android-signing': androidSigning, 'android-stage': androidStage, 'docker-ref': async () => console.log(dockerRef()), 'docker-stage': dockerStage, nas, manifest, verify, 'mac-proof': macProof };
   if (!commands[command]) throw Error('未知 Actions 操作');
   await commands[command]();
 }

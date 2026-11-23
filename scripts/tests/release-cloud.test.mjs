@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { normalizeBuild, normalizePublish, expectedArtifacts, assertBuildRun } from "../lib/release-cloud-contract.mjs";
+import { normalizeBuild, normalizePublish, expectedArtifacts, assertBuildRun, CLOUD_REPO } from "../lib/release-cloud-contract.mjs";
 
 const sha = "a".repeat(40);
 const id = "21ca8625-56db-467f-a27b-e2b2e5addcd9";
@@ -21,7 +21,7 @@ test("publishing requires explicit version confirmation and source attempt", () 
   assert.equal(normalizePublish({...input,confirmation:"1.5.3"}).source_run_id, 101);
 });
 test("only completed successful unified builds from this repo and exact attempt can be published", () => {
-  const run = {id:101,run_attempt:1,event:"workflow_dispatch",path:".github/workflows/release-build.yml",status:"completed",conclusion:"success",head_sha:sha,display_title:`Release build ${id}`,repository:{full_name:"cropflre/nowen-note"}};
+  const run = {id:101,run_attempt:1,event:"workflow_dispatch",path:".github/workflows/release-build.yml",status:"completed",conclusion:"success",head_sha:sha,display_title:`Release build ${id}`,repository:{full_name:CLOUD_REPO}};
   assert.doesNotThrow(() => assertBuildRun(run,101,1));
   for (const extra of [{conclusion:"failure"},{path:".github/workflows/release-center-candidate.yml"},{run_attempt:2},{event:"pull_request"},{repository:{full_name:"attacker/fork"}}])
     assert.throws(() => assertBuildRun({...run,...extra},101,1));
@@ -38,7 +38,7 @@ test('artifact verification rejects changed bytes, missing targets and foreign s
   await mkdir(join(directory,'release-clipper'));
   await writeFile(join(directory,'release-clipper','clipper.zip'),'fixture package');
   const input = normalizeBuild({version:'1.5.3',request_id:id,commit_sha:sha,targets:'clipper'});
-  const source = {id:101,run_attempt:1,event:'workflow_dispatch',path:'.github/workflows/release-build.yml',status:'completed',conclusion:'success',head_sha:sha,display_title:`Release build ${id}`,repository:{full_name:'cropflre/nowen-note'}};
+  const source = {id:101,run_attempt:1,event:'workflow_dispatch',path:'.github/workflows/release-build.yml',status:'completed',conclusion:'success',head_sha:sha,display_title:`Release build ${id}`,repository:{full_name:CLOUD_REPO}};
   const publish = normalizePublish({version:'1.5.3',request_id:id,source_run_id:101,source_attempt:1,channels:'github',confirmation:'1.5.3'});
   const manifest = await makeManifest(input,directory,{run_id:101,run_attempt:1});
   await mkdir(join(directory,'release-manifest'));
@@ -161,7 +161,7 @@ test('unsigned macOS release requires explicit truthful status and exact pinned 
  await verifyMacProof(manifest,directory);
 });
 
-import { compareVersions } from '../lib/release-cloud-contract.mjs';
+import { compareVersions, DOCKER_REPO } from '../lib/release-cloud-contract.mjs';
 test('Docker latest cannot regress when an older build finishes later', () => {
  assert.equal(compareVersions('1.5.4','1.5.3'),1);
  assert.equal(compareVersions('1.10.0','1.9.99'),1);
@@ -175,7 +175,7 @@ test('Docker promotes verified archives across runner image IDs and rejects corr
  const previousSummary=process.env.GITHUB_STEP_SUMMARY,previousFetch=global.fetch;
  process.env.GITHUB_STEP_SUMMARY=join(directory,'summary');
  t.after(()=>{global.fetch=previousFetch;if(previousSummary===undefined)delete process.env.GITHUB_STEP_SUMMARY;else process.env.GITHUB_STEP_SUMMARY=previousSummary;});
- const images=['amd64','arm64'].map((arch,i)=>({ref:`cropflre/nowen-note:v1.5.3-${arch}`,id:`sha256:${String(i+1).repeat(64)}`,arch,sha,version:'1.5.3'}));
+ const images=['amd64','arm64'].map((arch,i)=>({ref:`${DOCKER_REPO}:v1.5.3-${arch}`,id:`sha256:${String(i+1).repeat(64)}`,arch,sha,version:'1.5.3'}));
  const runnerImages=images.map((image,i)=>({...image,id:`sha256:${String(i+3).repeat(64)}`}));
  for(const image of images){const dir=join(directory,`release-docker-${image.arch}`);await mkdir(dir);await writeFile(join(dir,'image.tar'),'verified archive');image.archiveSha256=(await fileDigest(join(dir,'image.tar'))).sha256;await writeFile(join(dir,'image.json'),JSON.stringify(image));}
  const remote=new Map(),local=new Map(),calls=[];let lose=true,badRevision=false;

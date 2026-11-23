@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { escapeJavaProperty } from "../release-cloud-ci.mjs";
+import { CLOUD_REPO } from "../lib/release-cloud-contract.mjs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
@@ -51,7 +52,7 @@ test("release keystore identity is checked before Gradle without exposing signin
   const certificate = spawnSync("keytool", ["-exportcert", "-keystore", keystore, "-alias", alias, "-storepass", password]);
   assert.equal(certificate.status, 0, certificate.stderr.toString());
   const fingerprint = createHash("sha256").update(certificate.stdout).digest("hex");
-  const env = { ...process.env, GITHUB_ACTIONS:"true", GITHUB_REPOSITORY:"cropflre/nowen-note", NOWEN_ANDROID_KEYSTORE_B64:fs.readFileSync(keystore).toString("base64"), NOWEN_ANDROID_KEYSTORE_PASSWORD:password, NOWEN_ANDROID_KEY_ALIAS:alias, NOWEN_ANDROID_KEY_PASSWORD:password };
+  const env = { ...process.env, GITHUB_ACTIONS:"true", GITHUB_REPOSITORY:CLOUD_REPO, NOWEN_ANDROID_KEYSTORE_B64:fs.readFileSync(keystore).toString("base64"), NOWEN_ANDROID_KEYSTORE_PASSWORD:password, NOWEN_ANDROID_KEY_ALIAS:alias, NOWEN_ANDROID_KEY_PASSWORD:password };
   const run = pin => spawnSync(process.execPath, [fileURLToPath(new URL("../release-cloud-ci.mjs", import.meta.url)), "android-signing"], { cwd:directory, encoding:"utf8", env:{...env,NOWEN_ANDROID_CERT_SHA256:pin} });
   const rejected = run("0".repeat(64));
   assert.notEqual(rejected.status, 0);
@@ -77,7 +78,7 @@ test("Android staging uses the installed pinned SDK even when a newer SDK is pre
   command(path.join(sdk, "build-tools/36.0.0/apksigner"), 'if [ "$2" = "--print-certs" ]; then echo "Signer #1 certificate SHA-256 digest: $FIXTURE_CERT"; fi');
   command(path.join(sdk, "build-tools/36.0.0/aapt"), "echo \"package: name='com.nowen.note' versionCode='10510' versionName='1.5.4'\"");
   command(path.join(bin, "jarsigner"), "echo 'jar verified.'");
-  const run = certificate => spawnSync(process.execPath, [fileURLToPath(new URL("../release-cloud-ci.mjs", import.meta.url)), "android-stage"], { cwd:directory, encoding:"utf8", env:{...process.env,PATH:`${bin}:${process.env.PATH}`,GITHUB_ACTIONS:"true",GITHUB_REPOSITORY:"cropflre/nowen-note",ANDROID_HOME:sdk,RC_VERSION:"1.5.4",NOWEN_ANDROID_CERT_SHA256:fingerprint,FIXTURE_CERT:certificate} });
+  const run = certificate => spawnSync(process.execPath, [fileURLToPath(new URL("../release-cloud-ci.mjs", import.meta.url)), "android-stage"], { cwd:directory, encoding:"utf8", env:{...process.env,PATH:`${bin}:${process.env.PATH}`,GITHUB_ACTIONS:"true",GITHUB_REPOSITORY:CLOUD_REPO,ANDROID_HOME:sdk,RC_VERSION:"1.5.4",NOWEN_ANDROID_CERT_SHA256:fingerprint,FIXTURE_CERT:certificate} });
   const accepted = run(fingerprint);
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.equal(fs.readFileSync(path.join(directory, "release-android/Nowen-Note-1.5.4.apk"), "utf8"), "fixture-apk");

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile, writeFile, mkdir, appendFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CLOUD_REPO, normalizePublish, assertBuildRun, compareVersions } from './lib/release-cloud-contract.mjs';
+import { CLOUD_REPO, DOCKER_REPO, normalizePublish, assertBuildRun, compareVersions } from './lib/release-cloud-contract.mjs';
 import { loadImage } from './release-cloud-ci.mjs';
 const e = process.env;
 const cmd = (name, args, options = {}) => execFileSync(name, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], ...options }).trim();
@@ -121,7 +121,7 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   }
   // Docker Hub GET distinguishes an absent tag from network/auth errors. Never overwrite a version.
   const exists = async tag => {
-    const response = await fetch(`https://hub.docker.com/v2/repositories/${CLOUD_REPO}/tags/${tag}`, { signal: AbortSignal.timeout(30000) });
+    const response = await fetch(`https://hub.docker.com/v2/repositories/${DOCKER_REPO}/tags/${tag}`, { signal: AbortSignal.timeout(30000) });
     if (response.status === 404) return false;
     if (!response.ok) throw Error(`无法核实已有 Docker Tag (${response.status})`);
     return true;
@@ -133,7 +133,7 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
     if (actual.Id !== image.loadedImageId || actual.Architecture !== image.arch || actual.Os !== 'linux') throw Error(`Docker 已有版本内容不同；禁止覆盖：${ref} linux/${image.arch} (${actual.Id} != ${image.loadedImageId})`);
   };
   if (await exists(versionTag)) {
-    for (const image of images) checkRemote(`${CLOUD_REPO}:${versionTag}`, image);
+    for (const image of images) checkRemote(`${DOCKER_REPO}:${versionTag}`, image);
   } else {
     for (const image of images) {
       const tag = `${versionTag}-${image.arch}`;
@@ -145,17 +145,17 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
     const references = images.map(image => {
       const info = JSON.parse(execute('docker', ['buildx', 'imagetools', 'inspect', image.ref, '--format', '{{json .Manifest}}']));
       if (!/^sha256:[a-f0-9]{64}$/.test(info.digest)) throw Error('无法固定架构镜像 digest');
-      return `${CLOUD_REPO}@${info.digest}`;
+      return `${DOCKER_REPO}@${info.digest}`;
     });
-    execute('docker', ['buildx', 'imagetools', 'create', '-t', `${CLOUD_REPO}:${versionTag}`, ...references]);
-    for (const image of images) checkRemote(`${CLOUD_REPO}:${versionTag}`, image);
+    execute('docker', ['buildx', 'imagetools', 'create', '-t', `${DOCKER_REPO}:${versionTag}`, ...references]);
+    for (const image of images) checkRemote(`${DOCKER_REPO}:${versionTag}`, image);
   }
-  await appendFile(e.GITHUB_STEP_SUMMARY, `版本镜像已核实：${CLOUD_REPO}:${versionTag}；接下来处理 latest。\n`);
-  const versionRef = `${CLOUD_REPO}:${versionTag}`;
+  await appendFile(e.GITHUB_STEP_SUMMARY, `版本镜像已核实：${DOCKER_REPO}:${versionTag}；接下来处理 latest。\n`);
+  const versionRef = `${DOCKER_REPO}:${versionTag}`;
   const descriptor = JSON.parse(execute('docker', ['buildx', 'imagetools', 'inspect', versionRef, '--format', '{{json .Manifest}}']));
   if (!/^sha256:[a-f0-9]{64}$/.test(descriptor.digest)) throw Error('无法固定版本镜像 digest');
   if (await exists('latest')) {
-    const latestRef = `${CLOUD_REPO}:latest`;
+    const latestRef = `${DOCKER_REPO}:latest`;
     execute('docker', ['pull', '--platform', 'linux/amd64', latestRef]);
     const latest = JSON.parse(execute('docker', ['image', 'inspect', '--platform', 'linux/amd64', latestRef]))[0];
     const currentVersion = latest.Config.Labels?.['org.opencontainers.image.version']?.replace(/^v/, '');
@@ -163,9 +163,9 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
     if (comparison > 0) { await appendFile(e.GITHUB_STEP_SUMMARY, `已发布 ${versionTag}；latest 保留更新版本 ${currentVersion}。\n`); return; }
     if (comparison === 0) { for (const image of images) checkRemote(latestRef, image); return; }
   }
-  execute('docker', ['buildx', 'imagetools', 'create', '-t', `${CLOUD_REPO}:latest`, `${CLOUD_REPO}@${descriptor.digest}`]);
-  for (const image of images) checkRemote(`${CLOUD_REPO}:latest`, image);
-  await appendFile(e.GITHUB_STEP_SUMMARY, `Docker 双架构镜像已发布：${CLOUD_REPO}:${versionTag}\n`);
+  execute('docker', ['buildx', 'imagetools', 'create', '-t', `${DOCKER_REPO}:latest`, `${DOCKER_REPO}@${descriptor.digest}`]);
+  for (const image of images) checkRemote(`${DOCKER_REPO}:latest`, image);
+  await appendFile(e.GITHUB_STEP_SUMMARY, `Docker 双架构镜像已发布：${DOCKER_REPO}:${versionTag}\n`);
 }
 async function testflight(manifest) {
   if (!e.APPSTORE_API_PRIVATE_KEY || !e.APPSTORE_API_KEY_ID || !e.APPSTORE_ISSUER_ID || !/^[A-Z0-9]+$/.test(e.APPSTORE_API_KEY_ID)) throw Error('缺少 App Store Connect Secrets');

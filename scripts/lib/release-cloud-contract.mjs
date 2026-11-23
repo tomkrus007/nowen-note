@@ -1,4 +1,6 @@
-export const CLOUD_REPO = 'cropflre/nowen-note';
+export const CLOUD_REPO = 'tomkrus007/nowen-note';
+// Docker Hub 镜像仓库与 GitHub 仓库解耦：自用发布可指向自己的命名空间。
+export const DOCKER_REPO = 'tomkrus/nowen-note';
 export const BUILD_WORKFLOW = 'release-build.yml';
 export const PUBLISH_WORKFLOW = 'release-publish.yml';
 export const BUILD_TARGETS = ['windows', 'macos', 'linux', 'android', 'ios', 'store', 'docker', 'fpk', 'upk', 'clipper'];
