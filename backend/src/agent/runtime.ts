@@ -185,7 +185,7 @@ export class AgentRuntime {
     } catch (error) {
       const cancelled = session.controller.signal.aborted;
       if (!cancelled) {
-        const code = error instanceof AgentError ? error.code : error instanceof z.ZodError || error instanceof SyntaxError ? "INVALID_TOOL_ARGUMENTS" : (signal.aborted || (error as Error).name === "TimeoutError") ? "MODEL_TIMEOUT" : ["TOOL_CALLING_UNSUPPORTED", "MODEL_REQUEST_FAILED", "MODEL_OUTPUT_LIMIT", "AMBIGUOUS_EDIT", "OVERLAPPING_EDIT", "UNSAFE_DOCUMENT"].includes((error as Error).message) ? (error as Error).message : "MODEL_REQUEST_FAILED";
+        const code = error instanceof AgentError ? error.code : error instanceof z.ZodError || error instanceof SyntaxError ? "INVALID_TOOL_ARGUMENTS" : (signal.aborted || (error as Error).name === "TimeoutError") ? "MODEL_TIMEOUT" : ["TOOL_CALLING_UNSUPPORTED", "MODEL_REQUEST_FAILED", "MODEL_OUTPUT_LIMIT", "STREAM_INTERRUPTED", "INVALID_TOOL_CALL", "AMBIGUOUS_EDIT", "OVERLAPPING_EDIT", "UNSAFE_DOCUMENT"].includes((error as Error).message) ? (error as Error).message : "MODEL_REQUEST_FAILED";
         this.state(id, "failed", code);
       }
       this.forget(id);

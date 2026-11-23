@@ -23,4 +23,17 @@ export interface AgentWorkflowInput {
   notebookId: string; includeChildren: boolean; instruction: string;
   lang: "zh-CN" | "en"; timezone: string; linkNoteId?: string;
 }
+export interface AgentWorkflowBatch {
+  id: string; notebookId: string; workspaceId: string | null; status: string;
+  instruction: string; batchSize: number; completedThrough: number;
+  errorCode: string | null; createdAt: string; updatedAt: string;
+  noteIds?: string[]; batchErrors?: string[]; batchSummaries?: string[];
+  proposal?: { summary: string; note: { title: string; content: string } } | null;
+  approvalToken?: string; noteId?: string | null;
+}
+export interface AgentWorkflowBatchInput {
+  notebookId: string; includeChildren: boolean; instruction: string;
+  lang: "zh-CN" | "en"; timezone: string; aiContentLabels?: "v1";
+}
 export const workflowActive = (run: AgentWorkflow | null) => !!run && ["queued", "running", "waiting_approval", "applying"].includes(run.status);
+export const batchActive = (job: AgentWorkflowBatch | null) => !!job && ["running", "summarizing"].includes(job.status);

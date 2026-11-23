@@ -3532,7 +3532,10 @@
       "draft_tasks": "生成任务草稿",
       "create_note": "创建笔记",
       "create_tasks": "批量创建任务",
-      "create_extensions": "执行已审批工具"
+      "create_extensions": "执行已审批工具",
+      "list_notes": "列出笔记",
+      "read_note": "读取笔记",
+      "grep_notes": "全文检索笔记"
     },
     "errors": {
       "AI_LABELING_UNSUPPORTED": "服务器尚不支持 AI 内容标识，请更新服务器后使用此功能。",
@@ -3549,6 +3552,9 @@
       "APPROVAL_INVALID": "审批凭证失效，请重新生成。",
       "MODEL_TIMEOUT": "模型请求超时，请重试。",
       "MODEL_REQUEST_FAILED": "模型请求失败，请检查 AI 设置。",
+      "MODEL_OUTPUT_LIMIT": "模型输出被截断，内容未生成完整。请减少一次整理的笔记数量，或换用单次输出上限更高的模型。",
+      "STREAM_INTERRUPTED": "模型响应流被中断（网络或服务端不稳定），请重试。",
+      "INVALID_TOOL_CALL": "模型返回了无效的工具调用，请换用支持的模型后重试。",
       "INVALID_TOOL_ARGUMENTS": "模型提供了无效参数，未修改笔记。",
       "AMBIGUOUS_EDIT": "修改范围不唯一，未修改笔记，请重新生成。",
       "OVERLAPPING_EDIT": "修改范围重叠，请重新生成。",
@@ -3585,7 +3591,9 @@
       "CONNECTION_LIMIT": "已达到连接数量上限。",
       "TEMPLATE_LIMIT": "已达到模板数量上限。",
       "AGENT_TRIGGER_DENIED": "触发事件超出模板范围，未运行 Agent。",
-      "WEBHOOK_SIGNATURE_REQUIRED": "Agent Webhook 必须启用签名验证。"
+      "WEBHOOK_SIGNATURE_REQUIRED": "Agent Webhook 必须启用签名验证。",
+      "SCOPE_TOO_LARGE": "选择的笔记本范围过大（超过 2000 个笔记本），请缩小范围或关闭包含子笔记本。",
+      "CONTEXT_BUDGET_EXHAUSTED": "上下文预算已用完，Agent 已基于已读取的内容生成结果，详见摘要中的截断说明。"
     },
     "workflow": {
       "title": "笔记本 Agent",
@@ -3624,7 +3632,15 @@
       "taskChangesPending": "任务修改尚未核查。请先核查，再确认创建。",
       "noTasksSelected": "已排除全部任务草稿，确认后不会创建任务；展示的笔记或外部动作仍需确认。",
       "taskSchedule": "日期与重复规则",
-      "sourceVersion": "读取时版本 {{version}}"
+      "sourceVersion": "读取时版本 {{version}}",
+      "batchMode": "目录批量整理（分批处理，适合大量笔记）",
+      "batchHint": "将分批读取所选笔记本的笔记并逐批摘要，最后生成一份汇总整理草稿。只读原笔记，草稿需人工确认。",
+      "batchStatus": "批处理状态",
+      "batchProgress": "进度：已处理 {{done}} / {{total}} 篇",
+      "batchErrors": "{{count}} 个批次处理失败，已跳过",
+      "batchApproveHint": "草稿尚未写入。点击确认后将在所选笔记本创建这篇汇总笔记；原笔记保持不变。",
+      "batchApprove": "确认并创建笔记",
+      "batchReissue": "刷新审批"
     },
     "templates": {
       "title": "模板与自动整理",

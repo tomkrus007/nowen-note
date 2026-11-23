@@ -33,7 +33,7 @@ export async function readAgentResponse(response: Response, signal?: AbortSignal
   signal?.addEventListener("abort", abort, { once: true });
   const streaming = response.headers.get("content-type")?.includes("text/event-stream");
   const decoder = new TextDecoder();
-  let buffer = "", total = 0, done = false, usage: unknown;
+  let buffer = "", bytes = 0, payloadChars = 0, done = false, usage: unknown, finishReason: string | null = null;
   const calls = new Map<number, { id: string; type: string; function: { name: string; arguments: string } }>();
   const consume = (line: string) => {
     if (!line.startsWith("data:")) return;
@@ -42,15 +42,21 @@ export async function readAgentResponse(response: Response, signal?: AbortSignal
     if (value === "[DONE]") { done = true; return; }
     const event = JSON.parse(value);
     if (event.usage) usage = event.usage;
+    const reason = event.choices?.[0]?.finish_reason;
+    if (typeof reason === "string" && reason) finishReason = reason;
     for (const delta of event.choices?.[0]?.delta?.tool_calls || []) {
       if (!Number.isInteger(delta.index) || delta.index < 0 || delta.index >= 12) throw new Error("INVALID_TOOL_CALL");
       const call = calls.get(delta.index) || { id: "", type: "function", function: { name: "", arguments: "" } };
       if (delta.id) call.id += delta.id;
       if (delta.type && delta.type !== "function") throw new Error("INVALID_TOOL_CALL");
       if (delta.function?.name) call.function.name += delta.function.name;
-      if (delta.function?.arguments) call.function.arguments += delta.function.arguments;
+      if (delta.function?.arguments) { call.function.arguments += delta.function.arguments; payloadChars += delta.function.arguments.length; }
       calls.set(delta.index, call);
     }
+    // Reasoning text is never returned to the model, but it still costs budget;
+    // count it so runaway thinking cannot stream forever.
+    const reasoning = event.choices?.[0]?.delta?.reasoning_content;
+    if (typeof reasoning === "string") payloadChars += reasoning.length;
   };
   try {
     signal?.throwIfAborted();
@@ -58,19 +64,31 @@ export async function readAgentResponse(response: Response, signal?: AbortSignal
       const chunk = await reader.read();
       signal?.throwIfAborted();
       if (chunk.done) break;
-      total += chunk.value.byteLength;
-      if (total > 400_000) throw new Error("MODEL_OUTPUT_LIMIT");
+      // Gateways inflate every SSE frame with metadata (observed ~1 KB per frame),
+      // so transport bytes are a poor proxy for model output. Cap the payload and
+      // keep only a generous byte ceiling as a memory guard.
+      bytes += chunk.value.byteLength;
+      if (bytes > 16_000_000) throw new Error("MODEL_OUTPUT_LIMIT");
       buffer += decoder.decode(chunk.value, { stream: true });
       if (streaming) {
         let end: number;
         while (!done && (end = buffer.indexOf("\n")) >= 0) { consume(buffer.slice(0, end).replace(/\r$/, "")); buffer = buffer.slice(end + 1); }
         if (done) { buffer = ""; break; }
       }
+      if (payloadChars > 120_000) throw new Error("MODEL_OUTPUT_LIMIT");
     }
     buffer += decoder.decode();
-    if (!streaming) return JSON.parse(buffer);
+    if (!streaming) {
+      const payload = JSON.parse(buffer);
+      if (payload?.choices?.[0]?.finish_reason === "length") throw new Error("MODEL_OUTPUT_LIMIT");
+      return payload;
+    }
     if (buffer.trim()) consume(buffer);
-    if (!done) throw new Error("MODEL_REQUEST_FAILED");
+    // finish_reason is authoritative: some OpenAI-compatible gateways close the
+    // stream without a trailing [DONE]. Only treat EOF as truncation when the
+    // provider never reported a terminal reason.
+    if (finishReason === "length") throw new Error("MODEL_OUTPUT_LIMIT");
+    if (!done && !finishReason) throw new Error("STREAM_INTERRUPTED");
     return { choices: [{ message: { tool_calls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, value]) => value) } }], usage };
   } catch (error) {
     if (signal?.aborted) throw Object.assign(new Error("MODEL_TIMEOUT"), { code: "MODEL_TIMEOUT", name: "TimeoutError" });
@@ -83,10 +101,10 @@ export async function callAgentModel(settings: AISettings, messages: AgentMessag
   if (settings.shared_ai_user_id) settings = resolveUserChatSettings(settings.shared_ai_user_id);
   if (!agentModelConfigured(settings)) throw Object.assign(new Error("AI_NOT_CONFIGURED"), { code: "AI_NOT_CONFIGURED", status: 400 });
   if (settings.ai_provider === "anthropic" && !settings.ai_remote_shared) throw new Error("TOOL_CALLING_UNSUPPORTED");
-  // DeepSeek rejects required tool_choice in thinking mode. Select by provider
-  // or official endpoint, never by a guessed model-name capability.
+  // DeepSeek rejects required tool_choice in thinking mode. Match the model name
+  // too: gateways commonly proxy DeepSeek under a custom OpenAI-compatible URL.
   const host = new URL(settings.ai_api_url).hostname;
-  const deepseek = settings.ai_provider === "deepseek" || host === "api.deepseek.com";
+  const deepseek = settings.ai_provider === "deepseek" || host === "api.deepseek.com" || /deepseek/i.test(settings.ai_model);
   const bailian = ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "dashscope-us.aliyuncs.com"].includes(host) || host.endsWith(".maas.aliyuncs.com");
   const deadline = new AbortController();
   const abort = () => deadline.abort(signal.reason);
@@ -94,16 +112,24 @@ export async function callAgentModel(settings: AISettings, messages: AgentMessag
   const timer = setTimeout(() => deadline.abort(new DOMException("Model deadline exceeded", "TimeoutError")), 45_000);
   const requestSignal = deadline.signal;
   try {
-    const body = { model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096, ...(bailian ? { enable_thinking: false } : deepseek ? { thinking: { type: "disabled" } } : {}) };
-    const rawResponse = settings.ai_remote_shared
-      ? await requestRemoteSharedChat(settings, { messages, tools, tool_choice: "required", stream: true, max_tokens: 4096 }, requestSignal)
-      : await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/chat/completions`, {
+    const providerExtras: Record<string, unknown> = bailian ? { enable_thinking: false } : deepseek ? { thinking: { type: "disabled" } } : {};
+    const requestOnce = (extras: Record<string, unknown>) => settings.ai_remote_shared
+      ? requestRemoteSharedChat(settings, { messages, tools, tool_choice: "required", stream: true, max_tokens: 4096 }, requestSignal)
+      : aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: buildAIHeaders(settings.ai_provider, settings.ai_api_key, settings.ai_custom_headers),
-      body: JSON.stringify(body),
+      body: JSON.stringify({ model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096, ...extras }),
       signal: requestSignal,
       redirect: "error",
     });
+    let rawResponse = await requestOnce(providerExtras);
+    // A gateway that rejects the provider-specific thinking switch must not turn
+    // into TOOL_CALLING_UNSUPPORTED; retry once with the plain OpenAI body.
+    if (!rawResponse.ok && !settings.ai_remote_shared && Object.keys(providerExtras).length
+      && (rawResponse.status === 400 || rawResponse.status === 422)) {
+      void rawResponse.body?.cancel().catch(() => undefined);
+      rawResponse = await requestOnce({});
+    }
     if (!rawResponse.ok) { void rawResponse.body?.cancel().catch(() => undefined); throw new Error(rawResponse.status === 400 || rawResponse.status === 422 ? "TOOL_CALLING_UNSUPPORTED" : "MODEL_REQUEST_FAILED"); }
     const response = settings.shared_ai_user_id && !settings.ai_remote_shared ? await redactSharedAIResponse(rawResponse, settings) : rawResponse;
     const data = await readAgentResponse(response, requestSignal);

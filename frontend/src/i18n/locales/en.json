@@ -3525,7 +3525,10 @@
       "draft_tasks": "Prepare task drafts",
       "create_note": "Create note",
       "create_tasks": "Create task batch",
-      "create_extensions": "Execute approved tools"
+      "create_extensions": "Execute approved tools",
+      "list_notes": "List notes",
+      "read_note": "Read note",
+      "grep_notes": "Grep notes"
     },
     "errors": {
       "AI_LABELING_UNSUPPORTED": "Update the server to use AI content labeling with this feature.",
@@ -3542,6 +3545,9 @@
       "APPROVAL_INVALID": "Approval expired. Generate a new proposal.",
       "MODEL_TIMEOUT": "The model timed out. Retry the request.",
       "MODEL_REQUEST_FAILED": "Model request failed. Check AI settings.",
+      "MODEL_OUTPUT_LIMIT": "The model output was truncated before it finished. Process fewer notes at once, or use a model with a higher output limit.",
+      "STREAM_INTERRUPTED": "The model response stream was interrupted (unstable network or service). Retry the request.",
+      "INVALID_TOOL_CALL": "The model returned an invalid tool call. Switch to a supported model and retry.",
       "INVALID_TOOL_ARGUMENTS": "The model provided invalid parameters. The note was not changed.",
       "AMBIGUOUS_EDIT": "The edit location is ambiguous. The note was not changed. Generate again.",
       "OVERLAPPING_EDIT": "Edit ranges overlap. Generate again.",
@@ -3578,7 +3584,9 @@
       "CONNECTION_LIMIT": "Connection limit reached.",
       "TEMPLATE_LIMIT": "Template limit reached.",
       "AGENT_TRIGGER_DENIED": "The event is outside this template scope. Agent did not run.",
-      "WEBHOOK_SIGNATURE_REQUIRED": "Agent webhooks require signature verification."
+      "WEBHOOK_SIGNATURE_REQUIRED": "Agent webhooks require signature verification.",
+      "SCOPE_TOO_LARGE": "The selected notebook scope is too large (over 2000 notebooks). Narrow the scope or exclude child notebooks.",
+      "CONTEXT_BUDGET_EXHAUSTED": "The context budget is exhausted. The agent produced a result from the evidence already read; see the truncation note."
     },
     "workflow": {
       "title": "Notebook Agent",
@@ -3617,7 +3625,15 @@
       "taskChangesPending": "Task changes have not been reviewed. Review them before approving any creation.",
       "noTasksSelected": "All task drafts are excluded. Approval will create no tasks; any displayed note or external action still requires confirmation.",
       "taskSchedule": "Dates and recurrence",
-      "sourceVersion": "Read version {{version}}"
+      "sourceVersion": "Read version {{version}}",
+      "batchMode": "Batch organize directory (processes in batches, for large notebooks)",
+      "batchHint": "Notes in the selected notebook are read and summarized batch by batch, then combined into one digest draft. Existing notes are read-only; the draft needs human confirmation.",
+      "batchStatus": "Batch status",
+      "batchProgress": "Progress: {{done}} / {{total}} notes processed",
+      "batchErrors": "{{count}} batches failed and were skipped",
+      "batchApproveHint": "Nothing is written yet. Confirming creates this digest note in the selected notebook; existing notes stay unchanged.",
+      "batchApprove": "Approve and create note",
+      "batchReissue": "Refresh approval"
     },
     "templates": {
       "title": "Templates and recurring organization",

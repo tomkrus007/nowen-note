@@ -1311,6 +1311,14 @@ export const api = {
     get: (workspaceId: string, id: string) => request<import("./agentWorkflow").AgentWorkflow>(`/agent/workflows/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`),
     action: (workspaceId: string, id: string, action: "approve" | "retry" | "cancel" | "reject", token?: string) => request<import("./agentWorkflow").AgentWorkflow>(`/agent/workflows/${encodeURIComponent(id)}/${action}?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify(token ? { token } : {}), _skipOfflineQueue: true }),
   },
+  agentBatches: {
+    list: (workspaceId: string) => request<import("./agentWorkflow").AgentWorkflowBatch[]>(`/agent/batches?workspaceId=${encodeURIComponent(workspaceId)}`),
+    create: (workspaceId: string, input: import("./agentWorkflow").AgentWorkflowBatchInput) => request<{ id: string }>(`/agent/batches?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify(input), _skipOfflineQueue: true }),
+    get: (workspaceId: string, id: string) => request<import("./agentWorkflow").AgentWorkflowBatch>(`/agent/batches/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`),
+    action: (workspaceId: string, id: string, action: "resume" | "cancel") => request<import("./agentWorkflow").AgentWorkflowBatch>(`/agent/batches/${encodeURIComponent(id)}/${action}?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: "{}", _skipOfflineQueue: true }),
+    reissue: (workspaceId: string, id: string) => request<import("./agentWorkflow").AgentWorkflowBatch>(`/agent/batches/${encodeURIComponent(id)}/reissue?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: "{}", _skipOfflineQueue: true }),
+    approve: (workspaceId: string, id: string, token: string) => request<import("./agentWorkflow").AgentWorkflowBatch>(`/agent/batches/${encodeURIComponent(id)}/approve?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify({ token }), _skipOfflineQueue: true }),
+  },
   agent: {
     latest: (noteId: string) => request<import("./agentEdits").AgentRun | null>(`/agent/runs?noteId=${encodeURIComponent(noteId)}`),
     capabilities: () => request<{ enabled: boolean; toolCalling: string | boolean; aiContentLabels?: string }>("/agent/capabilities"),

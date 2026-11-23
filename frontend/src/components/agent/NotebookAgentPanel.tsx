@@ -6,7 +6,7 @@ import type { AgentTemplate } from "@/lib/agentTemplates";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
-import { workflowActive, type AgentWorkflow, type AgentTaskDraft } from "@/lib/agentWorkflow";
+import { workflowActive, batchActive, type AgentWorkflow, type AgentTaskDraft, type AgentWorkflowBatch } from "@/lib/agentWorkflow";
 import { getTaskComposerContext, isTaskComposerContextCurrent, refreshAgentTaskResults } from "@/lib/taskComposerApi";
 import { queueTaskNavigation } from "@/lib/taskNotifications";
 import { useApp, useAppActions } from "@/store/AppContext";
@@ -21,6 +21,8 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
   const [books, setBooks] = useState<Notebook[]>([]), [bookId, setBookId] = useState("");
   const [instruction, setInstruction] = useState(""), [includeChildren, setIncludeChildren] = useState(true), [linkCurrent, setLinkCurrent] = useState(false);
   const [run, setRun] = useState<AgentWorkflow | null>(null), [history, setHistory] = useState<AgentWorkflow[]>([]);
+  const [batch, setBatch] = useState<AgentWorkflowBatch | null>(null);
+  const [batchMode, setBatchMode] = useState(false);
   const [busy, setBusy] = useState(false), [enabled, setEnabled] = useState(false), [error, setError] = useState("");
   const [uncertain, setUncertain] = useState(false);
   const [taskDrafts, setTaskDrafts] = useState<AgentTaskDraft[] | null>(null);
@@ -77,6 +79,17 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
     if (lock.current || !current()) return;
     lock.current = true; stopped.current = false; pendingId.current = null; setBusy(true); setError("");
     try {
+      if (batchMode) {
+        // 批处理模式：map-reduce 整理目录，进度持久化在服务端，轮询状态。
+        const created = await api.agentBatches.create(workspaceId, {
+          notebookId: bookId, includeChildren, instruction, lang: i18n.language.startsWith("zh") ? "zh-CN" : "en",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, aiContentLabels: "v1",
+        });
+        const next = await api.agentBatches.get(workspaceId, created.id);
+        if (!current()) { await api.agentBatches.action(workspaceId, created.id, "cancel").catch(() => undefined); return; }
+        setBatch(next);
+        return;
+      }
       const created = await api.agentWorkflows.create(workspaceId, {
         ...(template ? { templateId: template.id, templateRevision: template.revision } : {}), notebookId: bookId, includeChildren, instruction, lang: i18n.language.startsWith("zh") ? "zh-CN" : "en",
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -96,6 +109,36 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
     } catch (e) { if (current()) setError(errorText(e)); }
     finally { lock.current = false; if (current()) setBusy(false); }
   }
+  useEffect(() => {
+    if (!batch || !batchActive(batch)) return;
+    const timer = setTimeout(() => { void api.agentBatches.get(workspaceId, batch.id).then(setBatch).catch(e => { if (current()) setError(errorText(e)); }); }, 1500);
+    return () => clearTimeout(timer);
+  }, [batch, workspaceId, current, errorText]);
+
+  async function batchAct(action: "resume" | "cancel") {
+    if (!batch || lock.current || !current()) return;
+    lock.current = true; setBusy(true); setError("");
+    try { setBatch(await api.agentBatches.action(workspaceId, batch.id, action)); }
+    catch (e) { if (current()) setError(errorText(e)); }
+    finally { lock.current = false; if (current()) setBusy(false); }
+  }
+
+  async function approveBatch() {
+    const token = batch?.approvalToken;
+    if (!batch || !token || lock.current || !current()) return;
+    lock.current = true; setBusy(true); setError("");
+    try {
+      const applied = await api.agentBatches.approve(workspaceId, batch.id, token);
+      if (current()) { setBatch(applied); actions.refreshNotebooks(); actions.refreshNotes(); }
+    } catch (e) {
+      if (!current()) return;
+      setError(errorText(e));
+      // APPROVAL_EXPIRED is a certain rejection, never an uncertain write:
+      // explicitly rotate the token and let the user approve again.
+      try { setBatch(await api.agentBatches.reissue(workspaceId, batch.id)); } catch { /* keep the original error visible */ }
+    } finally { lock.current = false; if (current()) setBusy(false); }
+  }
+
   async function refreshResults(next: AgentWorkflow) {
     if (!current()) return;
     actions.refreshNotebooks(); actions.refreshNotes();
@@ -177,6 +220,8 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
     {showLibrary && <AgentTemplates workspaceId={workspaceId} books={books} onUse={value => { setTemplate(value); setBookId(value.config.input.notebookId); setInstruction(value.config.input.instruction); setIncludeChildren(value.config.input.includeChildren); setLinkCurrent(false); setShowLibrary(false); }} />}
     <div className="space-y-4 rounded-2xl border border-app-border bg-app-surface p-4">
       {template && <div className="flex min-w-0 items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate">{template.name}</span><Button variant="outline" size="sm" disabled={busy || workflowActive(run)} onClick={() => setTemplate(null)}>{t("agent.templates.custom")}</Button></div>}
+      <label className="flex min-h-8 items-center gap-2 text-xs text-tx-secondary"><input type="checkbox" className="accent-accent-primary" checked={batchMode} disabled={busy || workflowActive(run) || batchActive(batch) || !!template} onChange={e => { setBatchMode(e.target.checked); if (!e.target.checked) setBatch(null); }} />{t("agent.workflow.batchMode")}</label>
+      {batchMode && <p className="text-xs text-tx-secondary">{t("agent.workflow.batchHint")}</p>}
       <div className="space-y-2">
         <label className="block text-xs font-medium text-tx-secondary">{t("agent.workflow.notebook")}<select aria-label={t("agent.workflow.notebook")} className="mt-2 block min-h-11 w-full min-w-0 rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm text-tx-primary" value={bookId} disabled={busy || workflowActive(run) || !!template} onChange={e => setBookId(e.target.value)}><option value="">{t("agent.workflow.choose")}</option>{books.map(book => <option key={book.id} value={book.id}>{book.name}</option>)}</select></label>
         <label className="flex min-h-8 items-center gap-2 text-xs text-tx-secondary"><input type="checkbox" className="accent-accent-primary" checked={includeChildren} disabled={busy || workflowActive(run) || !!template} onChange={e => setIncludeChildren(e.target.checked)} />{t("agent.workflow.children")}</label>
@@ -194,6 +239,30 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
     {run && <p role="status" className="text-sm">{t(`agent.states.${run.status}`)}</p>}
     {run?.steps.map(step => <div key={step.sequence} className="rounded border border-app-border px-3 py-2 text-xs">{t(`agent.tools.${step.toolName}`, { defaultValue: t("agent.step") })} · {t(`agent.states.${step.status}`)}</div>)}
     {(error || run?.errorCode) && <p role="alert" className="text-sm text-red-500">{error || errorText({ code: run?.errorCode })}</p>}
+    {batch && <div className="space-y-2 rounded border border-app-border p-3">
+      <p className="text-sm">{t("agent.workflow.batchStatus")}: {t(`agent.states.${batch.status}`, { defaultValue: batch.status })}</p>
+      {batch.noteIds && <p className="text-xs text-tx-secondary">{t("agent.workflow.batchProgress", { done: Math.min(batch.completedThrough, batch.noteIds!.length), total: batch.noteIds!.length })}</p>}
+      {batch.batchErrors?.length ? <p className="text-xs text-amber-600">{t("agent.workflow.batchErrors", { count: batch.batchErrors.length })}</p> : null}
+      {batchActive(batch) && <Button variant="outline" disabled={busy} onClick={() => void batchAct("cancel")}>{t("agent.stop")}</Button>}
+      {batch.status === "failed" && <Button variant="outline" disabled={busy} onClick={() => void batchAct("resume")}>{t("agent.workflow.retry")}</Button>}
+      {batch.status === "completed" && batch.proposal && <div className="space-y-2">
+        <AiGeneratedNotice />
+        <h3 className="font-medium">{t("agent.workflow.summary")}</h3>
+        <p className="whitespace-pre-wrap break-words text-sm">{batch.proposal.summary}</p>
+        <div className="rounded border border-app-border p-3"><h3 className="font-medium">{t("agent.workflow.newNote")}: {batch.proposal.note.title}</h3><pre className="mt-2 whitespace-pre-wrap break-words text-sm">{batch.proposal.note.content}</pre></div>
+        <div className="flex flex-wrap gap-2">
+          {batch.approvalToken
+            ? <Button disabled={busy} onClick={() => void approveBatch()}>{t("agent.workflow.batchApprove")}</Button>
+            : <Button variant="outline" disabled={busy} onClick={() => void api.agentBatches.reissue(workspaceId, batch.id).then(setBatch).catch(e => setError(errorText(e)))}>{t("agent.workflow.batchReissue")}</Button>}
+          <Button variant="outline" disabled={busy} onClick={() => void batchAct("cancel")}>{t("agent.reject")}</Button>
+        </div>
+        <p className="text-xs text-tx-secondary">{t("agent.workflow.batchApproveHint")}</p>
+      </div>}
+      {batch.status === "applied" && <div className="space-y-2 rounded border border-app-border p-3">
+        <p className="text-sm">{t("agent.workflow.saved")}</p>
+        {batch.noteId && onNavigateToNote && <Button variant="outline" size="sm" onClick={() => onNavigateToNote(batch.noteId!)}>{t("agent.workflow.openNote", { count: 1 })}</Button>}
+      </div>}
+    </div>}
     {run?.preview && <>
       <AiGeneratedNotice /><h3 className="font-medium">{t("agent.workflow.summary")}</h3><p className="whitespace-pre-wrap break-words text-sm">{run.preview.summary}</p>
       {run.preview.contextTruncated && <p className="text-xs text-amber-600">{t("agent.workflow.truncated")}</p>}

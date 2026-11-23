@@ -1,4 +1,5 @@
 import { agentP2Migration } from "./agentP2Migration.js";
+import { agentWorkflowBatchMigration } from "./agentWorkflowBatchMigration.js";
 import { migrationHubMigration, migrationHubRecoveryLedgerMigration } from "./migrationHubMigration.js";
 import { migrationDecisionsMigration } from "./migrationDecisionsMigration.js";
 import { migrationStableSourcesMigration } from "./migrationStableSourcesMigration.js";
@@ -459,6 +460,7 @@ export const MIGRATIONS: Migration[] = [
   agentMigration,
   agentWorkflowMigration,
   agentP2Migration,
+  agentWorkflowBatchMigration,
   encryptedJsonEvaluationMigration,
   sharedAIProfilesMigration,
 ].sort((a, b) => a.version - b.version);

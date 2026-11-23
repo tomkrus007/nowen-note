@@ -8,6 +8,7 @@ import { isManualAIEnabled } from "../services/user-ai-settings.js";
 import { bodyLimit } from "hono/body-limit";
 import { agentWorkflowRuntime } from "../agent/workflowRuntime.js";
 import { workflowInput } from "../agent/workflowTools.js";
+import { agentWorkflowBatchRuntime, batchStartInput } from "../agent/workflowBatch.js";
 import p2Routes from "../agent/p2Routes.js";
 const app = new Hono();
 app.use("*", async (c, next) => {
@@ -27,7 +28,7 @@ app.onError((error, c) => {
 app.get("/capabilities", c => {
   const userId = c.req.header("X-User-Id")!;
   const enabled = process.env.NOWEN_AGENT_ENABLED !== "false" && isManualAIEnabled(userId);
-  return c.json({ enabled, aiContentLabels: "v1", ...(enabled ? agentModelCapabilities(resolveUserChatSettings(userId)) : { chat: false, toolCalling: false }), verification: "actual_run", formats: ["markdown", "tiptap-json"], maxContextChars: 48000 });
+  return c.json({ enabled, aiContentLabels: "v1", ...(enabled ? agentModelCapabilities(resolveUserChatSettings(userId)) : { chat: false, toolCalling: false }), verification: "actual_run", formats: ["markdown", "tiptap-json"], maxContextChars: 40000 });
 });
 app.route("/library", p2Routes);
 const workspace = (value: string | undefined) => !value || value === "personal" ? null : value;
@@ -50,6 +51,19 @@ app.post("/workflows/:id/approve", async c => {
 });
 app.post("/workflows/:id/tasks", async c => c.json(agentWorkflowRuntime.reviseTasks(c.req.param("id"), c.req.header("X-User-Id")!, await c.req.json())));
 app.post("/workflows/:id/retry", c => c.json(agentWorkflowRuntime.retry(c.req.param("id"), c.req.header("X-User-Id")!)));
+// Map-reduce batch orchestration for directory-scale instructions. Read-only over the
+// notebook; the reduce proposal is persisted as a draft for human approval before any write.
+app.use("/batches/*", bodyLimit({ maxSize: 64000 }));
+app.post("/batches", bodyLimit({ maxSize: 64000 }), async c => c.json(agentWorkflowBatchRuntime.start(c.req.header("X-User-Id")!, workspace(c.req.query("workspaceId")), batchStartInput.parse(await c.req.json())), 202));
+app.get("/batches", c => c.json(agentWorkflowBatchRuntime.list(c.req.header("X-User-Id")!)));
+app.get("/batches/:id", c => c.json(agentWorkflowBatchRuntime.get(c.req.header("X-User-Id")!, c.req.param("id")!)));
+app.post("/batches/:id/resume", c => c.json(agentWorkflowBatchRuntime.resume(c.req.header("X-User-Id")!, c.req.param("id")!)));
+app.post("/batches/:id/cancel", c => c.json(agentWorkflowBatchRuntime.cancel(c.req.header("X-User-Id")!, c.req.param("id")!)));
+app.post("/batches/:id/reissue", c => c.json(agentWorkflowBatchRuntime.reissue(c.req.header("X-User-Id")!, c.req.param("id")!)));
+app.post("/batches/:id/approve", bodyLimit({ maxSize: 4096 }), async c => {
+  const { token } = z.object({ token: z.string().length(64) }).strict().parse(await c.req.json());
+  return c.json(await agentWorkflowBatchRuntime.approve(c.req.header("X-User-Id")!, c.req.param("id")!, token));
+});
 for (const action of ["cancel", "reject"]) app.post(`/workflows/:id/${action}`, c => c.json(agentWorkflowRuntime.cancel(c.req.param("id"), c.req.header("X-User-Id")!)));
 app.get("/runs", c => c.json(agentRuntime.latest(c.req.header("X-User-Id")!, c.req.query("noteId") || "")));
 app.post("/runs", async c => c.json(agentRuntime.create(c.req.header("X-User-Id")!, runInput.parse(await c.req.json()), c.req.header("X-Session-Id")), 202));
