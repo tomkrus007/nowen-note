@@ -370,10 +370,11 @@ export async function testEmbeddingModel(
   try {
     const response = await aiOutboundFetch(`${config.url.replace(/\/+$/, "")}/embeddings`, {
       method: "POST",
-      headers: {
-        ...requestHeaders(config),
-        "Content-Type": "application/json",
-      },
+      // requestHeaders 已通过 buildAIHeaders 带上 content-type；
+      // 再加一个大小写不同的同名头会被 fetch 合并成
+      // "application/json, application/json"，严格校验的上游（如 TEI/axum）
+      // 会以 415 拒绝。
+      headers: requestHeaders(config),
       body: JSON.stringify({
         model: config.model,
         input: ["Nowen Note embedding connectivity test."],

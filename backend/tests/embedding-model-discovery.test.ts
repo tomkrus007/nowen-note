@@ -143,6 +143,8 @@ test("tests /embeddings and returns vector dimension and duration", async () => 
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     assert.equal(String(input), "https://embedding.example/v1/embeddings");
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer stored-secret");
+    // 重复的大小写变体会被合并成 "application/json, application/json"，被严格上游以 415 拒绝
+    assert.equal(new Headers(init?.headers).get("content-type"), "application/json");
     requestBody = JSON.parse(String(init?.body));
     return new Response(JSON.stringify({
       data: [{ index: 0, embedding: [0.1, 0.2, 0.3, 0.4] }],
